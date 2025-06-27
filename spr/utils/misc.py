@@ -6,11 +6,12 @@ from time import time, ctime
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton, ChatMemberUpdated
 
-
-from spr import DB_NAME, SESSION_NAME, SUDOERS, spr
+from spr import DB_NAME, SESSION_NAME, SUDOERS
 from spr.utils.db import conn
 
-async def backup():
+
+# ✅ BACKUP FUNCTION — spr pass hota hai
+async def backup(spr):
     for user in SUDOERS:
         try:
             await gather(
@@ -20,11 +21,11 @@ async def backup():
         except Exception:
             pass
 
+
+# ✅ CACHED ADMINS — spr pass hota hai
 admins_in_chat = {}
 
-
-async def admins(chat_id: int):
-    global admins_in_chat
+async def admins(chat_id: int, spr):
     if chat_id in admins_in_chat:
         interval = time() - admins_in_chat[chat_id]["last_updated_at"]
         if interval < 3600:
@@ -42,11 +43,8 @@ async def admins(chat_id: int):
     return admins_in_chat[chat_id]["data"]
 
 
-# Admin cache reload
-
-
-@spr.on_chat_member_updated()
-async def admin_cache_func(_, cmu: ChatMemberUpdated):
+# ✅ ADMIN CACHE FUNC — uses client passed by Pyrogram
+async def admin_cache_func(spr, cmu: ChatMemberUpdated):
     if cmu.old_chat_member and cmu.old_chat_member.promoted_by:
         admins_in_chat[cmu.chat.id] = {
             "last_updated_at": time(),
@@ -60,16 +58,18 @@ async def admin_cache_func(_, cmu: ChatMemberUpdated):
         print(f"Updated admin cache for {cmu.chat.id} [{cmu.chat.title}]")
 
 
+# ✅ DB COMMIT LOOP
 async def once_a_minute():
     while True:
         conn.commit()
-        print(f"Commited to database at {ctime(time())}")
+        print(f"Committed to database at {ctime(time())}")
         await sleep(60)
 
 
-async def once_a_day():
+# ✅ DAILY BACKUP
+async def once_a_day(spr):
     print("BACKING UP DB...")
-    await backup()
+    await backup(spr)
     dt = datetime.now()
     seconds_till_twelve = (
         ((24 - dt.hour - 1) * 60 * 60)
@@ -81,18 +81,20 @@ async def once_a_day():
         + f"{round(seconds_till_twelve/60/60, 4)} HOUR(S)"
     )
     await sleep(int(seconds_till_twelve))  # Sleep till 12 AM
+
     while True:
         print("DB BACKED UP!, NEXT BACKUP WILL HAPPEN AFTER 24 HOURS")
-        await backup()
-        await sleep(86400)  # sleep for a day
+        await backup(spr)
+        await sleep(86400)  # Sleep for a day
 
 
+# ✅ FILE ID PARSERS
 def get_file_id(message):
     if message.document:
         if int(message.document.file_size) > 3145728:
             return
         mime_type = message.document.mime_type
-        if mime_type != "image/png" and mime_type != "image/jpeg":
+        if mime_type not in ["image/png", "image/jpeg"]:
             return
         return message.document.file_id
 
@@ -125,6 +127,7 @@ def get_file_unique_id(message):
     return m.file_unique_id
 
 
+# ✅ PAGINATED BUTTON UTILITY
 class EqInlineKeyboardButton(InlineKeyboardButton):
     def __eq__(self, other):
         return self.text == other.text
@@ -142,9 +145,7 @@ def paginate_modules(page_n, module_dict, prefix, chat=None):
             [
                 EqInlineKeyboardButton(
                     x.__MODULE__,
-                    callback_data="{}_module({})".format(
-                        prefix, x.__MODULE__.lower()
-                    ),
+                    callback_data=f"{prefix}_module({x.__MODULE__.lower()})",
                 )
                 for x in module_dict.values()
             ]
@@ -154,55 +155,32 @@ def paginate_modules(page_n, module_dict, prefix, chat=None):
             [
                 EqInlineKeyboardButton(
                     x.__MODULE__,
-                    callback_data="{}_module({},{})".format(
-                        prefix, chat, x.__MODULE__.lower()
-                    ),
+                    callback_data=f"{prefix}_module({chat},{x.__MODULE__.lower()})",
                 )
                 for x in module_dict.values()
             ]
         )
 
     pairs = list(zip(modules[::3], modules[1::3], modules[2::3]))
-    i = 0
-    for m in pairs:
-        for _ in m:
-            i += 1
-    if len(modules) - i == 1:
-        pairs.append((modules[-1],))
-    elif len(modules) - i == 2:
-        pairs.append(
-            (
-                modules[-2],
-                modules[-1],
-            )
-        )
+    leftover = len(modules) % 3
+    if leftover:
+        pairs.append(tuple(modules[-leftover:]))
 
     max_num_pages = ceil(len(pairs) / 7)
     modulo_page = page_n % max_num_pages
 
-    # can only have a certain amount of buttons side by side
     if len(pairs) > 7:
         pairs = pairs[modulo_page * 7 : 7 * (modulo_page + 1)] + [
             (
-                EqInlineKeyboardButton(
-                    "<",
-                    callback_data="{}_prev({})".format(
-                        prefix, modulo_page
-                    ),
-                ),
-                EqInlineKeyboardButton(
-                    ">",
-                    callback_data="{}_next({})".format(
-                        prefix, modulo_page
-                    ),
-                ),
+                EqInlineKeyboardButton("<", callback_data=f"{prefix}_prev({modulo_page})"),
+                EqInlineKeyboardButton(">", callback_data=f"{prefix}_next({modulo_page})"),
             )
         ]
 
     return pairs
 
 
-""" TO GET UPVOTES/DOWNVOTES FROM MESSAGE """
+# ✅ CLEAN VOTE COUNT TEXT (IF USED)
 clean = lambda x: int(
     x.text.split()[1].replace("(", "").replace(")", "")
-)
+                                                             )
